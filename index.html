@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Computer Parts Information System</title>
+<style>
+:root{--bg:#f2f4f1;--panel:#fff;--ink:#1a2421;--muted:#5d6b65;--line:#c9d1cc;--green:#0f5b45;--copper:#b8742f;--red:#b3261e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Roboto,Arial,sans-serif;line-height:1.5}
+header{background:var(--green);color:#fff;padding:22px 5%;border-bottom:4px solid var(--copper)}
+header h1{margin:0;font-size:1.6rem;letter-spacing:.3px}
+header p{margin:4px 0 0;color:#cfe5dc}
+main{max-width:1050px;margin:24px auto;padding:0 5%}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.stat{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--copper);padding:10px 16px;min-width:150px}
+.stat b{display:block;font-size:1.4rem}
+.stat span{color:var(--muted);font-size:.85rem}
+form{background:var(--panel);border:1px solid var(--line);padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+label{font-size:.85rem;color:var(--muted);display:block}
+input,select{width:100%;padding:8px;border:1px solid var(--line);border-radius:3px;font:inherit;background:#fff}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--copper);outline-offset:1px}
+button{font:inherit;cursor:pointer;border:0;border-radius:3px;padding:9px 16px;background:var(--green);color:#fff}
+button.alt{background:#fff;color:var(--ink);border:1px solid var(--line)}
+button.del{background:var(--red);padding:5px 10px}
+button.edit{background:var(--copper);padding:5px 10px}
+.actions{display:flex;gap:8px;align-items:end}
+.tools{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.tools input{flex:2;min-width:200px}.tools select{flex:1;min-width:140px}
+.wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{background:#e6ece8;font-weight:600}
+td.num{text-align:right}
+.low{color:var(--red);font-weight:600}
+.empty{padding:24px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Computer Parts Information System</h1>
+  <p>Add, search, update and track computer parts and stock.</p>
+</header>
+<main>
+  <section class="stats">
+    <div class="stat"><b id="sCount">0</b><span>Total parts</span></div>
+    <div class="stat"><b id="sStock">0</b><span>Units in stock</span></div>
+    <div class="stat"><b id="sValue">₹0</b><span>Stock value</span></div>
+    <div class="stat"><b id="sLow">0</b><span>Low stock (under 5)</span></div>
+  </section>
+
+  <form id="partForm">
+    <div><label for="name">Part name</label><input id="name" required></div>
+    <div><label for="category">Category</label>
+      <select id="category" required>
+        <option>CPU</option><option>RAM</option><option>GPU</option><option>Motherboard</option>
+        <option>SSD</option><option>HDD</option><option>PSU</option><option>Cabinet</option><option>Other</option>
+      </select></div>
+    <div><label for="brand">Brand</label><input id="brand" required></div>
+    <div><label for="price">Price (₹)</label><input id="price" type="number" min="0" step="0.01" required></div>
+    <div><label for="stock">Stock quantity</label><input id="stock" type="number" min="0" step="1" required></div>
+    <div class="actions">
+      <button type="submit" id="saveBtn">Add part</button>
+      <button type="button" class="alt" id="cancelBtn" hidden>Cancel</button>
+    </div>
+  </form>
+
+  <div class="tools">
+    <input id="search" placeholder="Search by name, brand or category" aria-label="Search parts">
+    <select id="filter" aria-label="Filter by category"><option value="">All categories</option></select>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Brand</th><th class="num">Price</th><th class="num">Stock</th><th>Actions</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No parts found. Add a part using the form above.</div>
+  </div>
+</main>
+
+<script>
+const KEY = "computerParts";
+let parts = [];
+let editId = null;
+
+// Load and save with localStorage (falls back to memory if storage is blocked)
+function load() {
+  try { const d = localStorage.getItem(KEY); if (d) return JSON.parse(d); } catch (e) {}
+  return null;
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(parts)); } catch (e) {}
+}
+
+parts = load() || [
+  { id: 1, name: "Ryzen 5 5600", category: "CPU", brand: "AMD", price: 12000, stock: 10 },
+  { id: 2, name: "Vengeance 16GB DDR4", category: "RAM", brand: "Corsair", price: 3200, stock: 3 },
+  { id: 3, name: "980 1TB NVMe", category: "SSD", brand: "Samsung", price: 6500, stock: 8 }
+];
+
+const $ = id => document.getElementById(id);
+const money = n => "₹" + Number(n).toLocaleString("en-IN");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function refreshFilter() {
+  const cur = $("filter").value;
+  const cats = [...new Set(parts.map(p => p.category))].sort();
+  $("filter").innerHTML = '<option value="">All categories</option>' +
+    cats.map(c => `<option${c === cur ? " selected" : ""}>${esc(c)}</option>`).join("");
+}
+
+function render() {
+  const q = $("search").value.toLowerCase();
+  const f = $("filter").value;
+  const list = parts.filter(p =>
+    (!f || p.category === f) &&
+    (p.name + p.brand + p.category).toLowerCase().includes(q));
+
+  $("rows").innerHTML = list.map(p => `
+    <tr>
+      <td>${p.id}</td><td>${esc(p.name)}</td><td>${esc(p.category)}</td><td>${esc(p.brand)}</td>
+      <td class="num">${money(p.price)}</td>
+      <td class="num ${p.stock < 5 ? "low" : ""}">${p.stock}</td>
+      <td><button class="edit" onclick="startEdit(${p.id})">Edit</button>
+          <button class="del" onclick="removePart(${p.id})">Delete</button></td>
+    </tr>`).join("");
+  $("empty").hidden = list.length > 0;
+
+  $("sCount").textContent = parts.length;
+  $("sStock").textContent = parts.reduce((a, p) => a + p.stock, 0);
+  $("sValue").textContent = money(parts.reduce((a, p) => a + p.price * p.stock, 0));
+  $("sLow").textContent = parts.filter(p => p.stock < 5).length;
+}
+
+$("partForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const data = {
+    name: $("name").value.trim(),
+    category: $("category").value,
+    brand: $("brand").value.trim(),
+    price: parseFloat($("price").value),
+    stock: parseInt($("stock").value, 10)
+  };
+  if (editId) {
+    Object.assign(parts.find(p => p.id === editId), data);
+  } else {
+    const id = parts.length ? Math.max(...parts.map(p => p.id)) + 1 : 1;
+    parts.push({ id, ...data });
+  }
+  save(); resetForm(); refreshFilter(); render();
+});
+
+function startEdit(id) {
+  const p = parts.find(x => x.id === id);
+  editId = id;
+  $("name").value = p.name; $("category").value = p.category; $("brand").value = p.brand;
+  $("price").value = p.price; $("stock").value = p.stock;
+  $("saveBtn").textContent = "Save changes";
+  $("cancelBtn").hidden = false;
+  $("name").focus();
+}
+
+function resetForm() {
+  editId = null;
+  $("partForm").reset();
+  $("saveBtn").textContent = "Add part";
+  $("cancelBtn").hidden = true;
+}
+
+function removePart(id) {
+  if (!confirm("Delete this part?")) return;
+  parts = parts.filter(p => p.id !== id);
+  save(); refreshFilter(); render();
+}
+
+$("cancelBtn").addEventListener("click", resetForm);
+$("search").addEventListener("input", render);
+$("filter").addEventListener("change", render);
+
+refreshFilter();
+render();
+</script>
+</body>
+</html>
